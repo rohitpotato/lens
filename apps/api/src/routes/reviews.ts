@@ -7,6 +7,7 @@ import {
   schemas,
   type Database,
 } from '@lens/db';
+import { correctionsTotal, reviewActionsTotal } from '@lens/metrics';
 import {
   computeConfidence,
   domainSchemaSchema,
@@ -219,6 +220,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
     // extraction's own schema so hints get scoped correctly per domain.
     const docRow = (await app.db.select({ detectedType: documents.detectedType }).from(documents).where(eq(documents.id, params.data.documentId)).limit(1))[0];
     const documentType = docRow?.detectedType ?? 'invoice';
+    correctionsTotal.inc({ document_type: documentType, field_path: body.data.fieldPath });
     const rawName = typeof currentJson['vendor_name'] === 'string'
       ? (currentJson['vendor_name'] as string)
       : typeof currentJson['merchant_name'] === 'string'
@@ -260,6 +262,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
         payload: { documentId: params.data.documentId },
       });
     });
+    reviewActionsTotal.inc({ action: 'approved' });
     return { ok: true };
   });
 
@@ -284,6 +287,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
         payload: { documentId: params.data.documentId, reason: body.data.reason },
       });
     });
+    reviewActionsTotal.inc({ action: 'rejected' });
     return { ok: true };
   });
 

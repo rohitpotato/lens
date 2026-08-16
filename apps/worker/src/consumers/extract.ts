@@ -10,6 +10,12 @@ import {
 } from '@lens/db';
 import { type LlmClient } from '@lens/llm';
 import {
+  extractionConfidence,
+  extractionDurationSeconds,
+  extractionHintsApplied,
+  extractionsTotal,
+} from '@lens/metrics';
+import {
   computeConfidence,
   domainSchemaSchema,
   evaluateRules,
@@ -78,6 +84,7 @@ export function makeExtractConsumer(deps: {
     if (!promptRow) throw new Error(`no active ${extractPromptName} prompt`);
 
     const pdf = await deps.storage.get(doc.storagePath);
+    const extractStart = Date.now();
 
     // Pass 1: no hints. We need the extracted vendor before we can look up
     // per-vendor hints. Cost: one Sonnet call.
@@ -131,6 +138,11 @@ export function makeExtractConsumer(deps: {
     if (!result.json) {
       log.error({ parseError: result.parseError }, 'extraction JSON parse failed twice');
       await deps.db.update(documents).set({ status: 'failed' }).where(eq(documents.id, documentId));
+      extractionsTotal.inc({ document_type: detectedType, outcome: 'failed' });
+      extractionDurationSeconds.observe(
+        { document_type: detectedType, passes: hintsApplied.length > 0 ? '2' : '1' },
+        (Date.now() - extractStart) / 1000,
+      );
       return;
     }
 

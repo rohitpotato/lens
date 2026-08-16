@@ -13,6 +13,7 @@
   "dependencies": {
     "@lens/db": "workspace:*",
     "@lens/llm": "workspace:*",
+    "@lens/metrics": "workspace:*",
     "@lens/pipeline": "workspace:*",
     "@lens/queue": "workspace:*",
     "@lens/storage": "workspace:*",

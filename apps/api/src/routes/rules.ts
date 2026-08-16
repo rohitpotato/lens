@@ -1,5 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { promptHints } from '@lens/db';
+import { hintsTotal } from '@lens/metrics';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
@@ -48,6 +49,7 @@ export const ruleRoutes: FastifyPluginAsync = async (app) => {
       .where(eq(promptHints.id, params.id))
       .returning();
     if (rows.length === 0) return reply.notFound();
+    hintsTotal.inc({ document_type: rows[0]!.documentType, action: 'adopted' });
     return { ok: true, id: rows[0]!.id };
   });
 
@@ -59,6 +61,7 @@ export const ruleRoutes: FastifyPluginAsync = async (app) => {
       .where(eq(promptHints.id, params.id))
       .returning();
     if (rows.length === 0) return reply.notFound();
+    hintsTotal.inc({ document_type: rows[0]!.documentType, action: 'ignored' });
     return { ok: true, id: rows[0]!.id };
   });
 
@@ -71,6 +74,7 @@ export const ruleRoutes: FastifyPluginAsync = async (app) => {
       .where(eq(promptHints.id, params.id))
       .returning();
     if (rows.length === 0) return reply.notFound();
+    hintsTotal.inc({ document_type: rows[0]!.documentType, action: 'modified' });
     return { ok: true, id: rows[0]!.id, hint: rows[0]!.hint };
   });
 };

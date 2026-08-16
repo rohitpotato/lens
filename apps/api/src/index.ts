@@ -5,11 +5,17 @@ import sensible from '@fastify/sensible';
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
 import { loadEnv } from './env.js';
+import {
+  httpRequestDurationSeconds,
+  rateLimitHitsTotal,
+  setAppLabel,
+} from '@lens/metrics';
 import { costGuardPlugin } from './plugins/cost-guard.js';
 import { dbPlugin } from './plugins/db.js';
 import { servicesPlugin, resolveDomainsDir, resolvePromptsDir } from './plugins/services.js';
 import { documentRoutes } from './routes/documents.js';
 import { healthRoutes } from './routes/health.js';
+import { metricsRoutes } from './routes/metrics.js';
 import { reviewRoutes } from './routes/reviews.js';
 import { ruleRoutes } from './routes/rules.js';
 import { queryRoutes } from './routes/query.js';
@@ -17,6 +23,7 @@ import { vendorRoutes } from './routes/vendors.js';
 
 async function main() {
   const env = loadEnv();
+  setAppLabel('api');
 
   const isDev = env.NODE_ENV === 'development';
   const app = Fastify({
@@ -59,7 +66,21 @@ async function main() {
     domainsDir: resolveDomainsDir(),
     promptsDir: resolvePromptsDir(),
   });
+  // Route-templated HTTP latency histogram. Keeps cardinality bounded by using
+  // the fastify route pattern (e.g. /reviews/:documentId) rather than the raw URL.
+  app.addHook('onResponse', async (req, reply) => {
+    const route = req.routeOptions?.url ?? 'unknown';
+    if (route === '/metrics') return;
+    const seconds = Number(reply.elapsedTime) / 1000;
+    httpRequestDurationSeconds.observe(
+      { method: req.method, route, status_code: String(reply.statusCode) },
+      seconds,
+    );
+    if (reply.statusCode === 429) rateLimitHitsTotal.inc();
+  });
+
   await app.register(healthRoutes);
+  await app.register(metricsRoutes);
   await app.register(documentRoutes);
   await app.register(reviewRoutes);
   await app.register(ruleRoutes);

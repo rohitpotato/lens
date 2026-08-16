@@ -1,4 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  llmCostUsdTotal,
+  llmRequestDurationSeconds,
+  llmRequestsTotal,
+  llmTokensTotal,
+} from '@lens/metrics';
 import { computeCostUsd } from './pricing.js';
 
 export type LlmMessage = {
@@ -38,30 +44,47 @@ export function createAnthropicClient(opts: { apiKey: string }): LlmClient {
   return {
     async chat(input) {
       const start = Date.now();
-      const res = await sdk.messages.create({
-        model: input.model,
-        ...(input.system !== undefined ? { system: input.system } : {}),
-        messages: input.messages as Anthropic.MessageParam[],
-        max_tokens: input.maxTokens ?? 4096,
-        temperature: input.temperature ?? 0,
-      });
-      const latencyMs = Date.now() - start;
-      const text = res.content
-        .filter((c): c is Anthropic.TextBlock => c.type === 'text')
-        .map((c) => c.text)
-        .join('');
-      const usage: LlmUsage = {
-        inputTokens: res.usage.input_tokens,
-        outputTokens: res.usage.output_tokens,
-      };
-      return {
-        text,
-        usage,
-        costUsd: computeCostUsd(input.model, usage.inputTokens, usage.outputTokens),
-        latencyMs,
-        model: res.model,
-        stopReason: res.stop_reason,
-      };
+      const timer = llmRequestDurationSeconds.startTimer({ model: input.model });
+      try {
+        const res = await sdk.messages.create({
+          model: input.model,
+          ...(input.system !== undefined ? { system: input.system } : {}),
+          messages: input.messages as Anthropic.MessageParam[],
+          max_tokens: input.maxTokens ?? 4096,
+          temperature: input.temperature ?? 0,
+        });
+        const latencyMs = Date.now() - start;
+        const text = res.content
+          .filter((c): c is Anthropic.TextBlock => c.type === 'text')
+          .map((c) => c.text)
+          .join('');
+        const usage: LlmUsage = {
+          inputTokens: res.usage.input_tokens,
+          outputTokens: res.usage.output_tokens,
+        };
+        const costUsd = computeCostUsd(input.model, usage.inputTokens, usage.outputTokens);
+
+        llmRequestsTotal.inc({ model: input.model, outcome: 'success' });
+        llmTokensTotal.inc({ model: input.model, direction: 'input' }, usage.inputTokens);
+        llmTokensTotal.inc({ model: input.model, direction: 'output' }, usage.outputTokens);
+        llmCostUsdTotal.inc({ model: input.model }, costUsd);
+        timer();
+
+        return {
+          text,
+          usage,
+          costUsd,
+          latencyMs,
+          model: res.model,
+          stopReason: res.stop_reason,
+        };
+      } catch (err) {
+        timer();
+        const outcome =
+          err instanceof Anthropic.APIError && err.status === 429 ? 'rate_limited' : 'error';
+        llmRequestsTotal.inc({ model: input.model, outcome });
+        throw err;
+      }
     },
   };
 }

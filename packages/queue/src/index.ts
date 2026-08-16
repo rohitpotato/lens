@@ -1,4 +1,5 @@
 import { Redis } from 'ioredis';
+import { queueDeliveryAttempts, queueMessagesTotal } from '@lens/metrics';
 
 export type QueueMessage<T = Record<string, unknown>> = {
   id: string;
@@ -54,6 +55,7 @@ export function createQueue(redisUrl: string): Queue {
     async publish(stream, payload) {
       const id = await redis.xadd(stream, '*', 'data', JSON.stringify(payload));
       if (!id) throw new Error('xadd returned null');
+      queueMessagesTotal.inc({ stream, outcome: 'published' });
       return id;
     },
 
@@ -115,6 +117,8 @@ export function createQueue(redisUrl: string): Queue {
               `[queue:${opts.stream}] dead-lettering ${id} after ${deliveryCount} attempts (no handler)`,
             );
           }
+          queueMessagesTotal.inc({ stream: opts.stream, outcome: 'dead_lettered' });
+          queueDeliveryAttempts.observe({ stream: opts.stream }, deliveryCount);
           // Ack unconditionally — we're giving up on this message either way.
           await redis.xack(opts.stream, opts.group, id);
         }
@@ -174,9 +178,12 @@ export function createQueue(redisUrl: string): Queue {
           const payload = JSON.parse(raw) as Record<string, unknown>;
           await opts.handler({ id, payload: payload as never, attempt: 1 });
           await redis.xack(opts.stream, opts.group, id);
+          queueMessagesTotal.inc({ stream: opts.stream, outcome: 'acked' });
+          queueDeliveryAttempts.observe({ stream: opts.stream }, 1);
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error(`[queue:${opts.stream}] handler failed for ${id}`, err);
+          queueMessagesTotal.inc({ stream: opts.stream, outcome: 'failed' });
           // Leave unacked; xautoclaim will retry after claimIdleMs.
           // If delivery count exceeds maxAttempts, drainDeadLetters() picks it up.
         }

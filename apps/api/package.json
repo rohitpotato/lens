@@ -16,6 +16,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/sensible": "^6.0.1",
     "@lens/db": "workspace:*",
+    "@lens/metrics": "workspace:*",
     "@lens/pipeline": "workspace:*",
     "@lens/queue": "workspace:*",
     "@lens/storage": "workspace:*",

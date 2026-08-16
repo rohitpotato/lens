@@ -16,6 +16,7 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY required for worker'),
   WORKER_NAME: z.string().default('worker-1'),
+  METRICS_PORT: z.coerce.number().int().positive().default(9091),
 });
 
 export type Env = z.infer<typeof envSchema>;

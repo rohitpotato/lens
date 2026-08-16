@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { appendEvent, documents, type Database } from '@lens/db';
 import { type LlmClient } from '@lens/llm';
+import { documentsClassifiedTotal } from '@lens/metrics';
 import { classifyDocument, getActivePrompt } from '@lens/pipeline';
 import { STREAMS, type Queue } from '@lens/queue';
 import { type Storage } from '@lens/storage';

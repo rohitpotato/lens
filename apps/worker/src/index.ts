@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { appendEvent, documents, createDb, type Database } from '@lens/db';
 import { createAnthropicClient } from '@lens/llm';
+import { setAppLabel } from '@lens/metrics';
 import { createQueue, STREAMS } from '@lens/queue';
 import { createStorage } from '@lens/storage';
 import pino, { type Logger } from 'pino';
@@ -8,6 +9,7 @@ import { loadEnv } from './env.js';
 import { makeClassifyConsumer } from './consumers/classify.js';
 import { makeExtractConsumer } from './consumers/extract.js';
 import { makeHintConsumer } from './consumers/hint.js';
+import { startMetricsServer } from './metrics-server.js';
 
 /**
  * Dead-letter handler for pipeline consumers that operate on a document.
@@ -42,6 +44,7 @@ function makeDocumentDeadLetter(deps: { db: Database; log: Logger; step: string 
 
 async function main() {
   const env = loadEnv();
+  setAppLabel('worker');
   const isDev = env.NODE_ENV === 'development';
 
   const log = pino({
@@ -103,6 +106,8 @@ async function main() {
     // Hint gen failure isn't user-facing; the queue logs + acks. No doc state to update.
   });
 
+  const metricsServer = startMetricsServer({ port: env.METRICS_PORT, log });
+
   classify.start();
   extract.start();
   hint.start();
@@ -110,6 +115,7 @@ async function main() {
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');
+    metricsServer.close();
     await classify.stop();
     await extract.stop();
     await hint.stop();

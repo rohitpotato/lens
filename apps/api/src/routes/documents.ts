@@ -3,6 +3,11 @@ import path from 'node:path';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { appendEvent, documents, extractions } from '@lens/db';
+import {
+  costCapHitsTotal,
+  documentsUploadedTotal,
+  uploadRejectedTotal,
+} from '@lens/metrics';
 import { STREAMS } from '@lens/queue';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
@@ -37,6 +42,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
   app.post('/documents', { config: { rateLimit: {} } }, async (req, reply) => {
     const guard = await app.checkCostGuard();
     if (!guard.ok) {
+      costCapHitsTotal.inc();
       return reply.code(503).send({
         error: 'daily cost cap reached',
         code: 'cost_cap_reached',
@@ -46,18 +52,24 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const file = await req.file({ limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
-    if (!file) return reply.badRequest('missing file');
+    if (!file) {
+      uploadRejectedTotal.inc({ reason: 'missing_file' });
+      return reply.badRequest('missing file');
+    }
+    const sourceMime = file.mimetype || 'unknown';
 
     const chunks: Buffer[] = [];
     let total = 0;
     for await (const chunk of file.file) {
       total += chunk.length;
       if (total > MAX_UPLOAD_BYTES) {
+        uploadRejectedTotal.inc({ reason: 'too_large' });
         return reply.code(413).send({ error: 'file too large', maxBytes: MAX_UPLOAD_BYTES });
       }
       chunks.push(chunk);
     }
     if (file.file.truncated) {
+      uploadRejectedTotal.inc({ reason: 'too_large' });
       return reply.code(413).send({ error: 'file too large', maxBytes: MAX_UPLOAD_BYTES });
     }
     let buffer: Buffer = Buffer.concat(chunks);
@@ -70,6 +82,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         mimeType = 'application/pdf';
       } catch (err) {
         app.log.error({ err }, 'image-to-pdf conversion failed');
+        uploadRejectedTotal.inc({ reason: 'image_conversion_failed' });
         return reply.code(400).send({ error: 'could not read image', code: 'image_conversion_failed' });
       }
     }
@@ -82,6 +95,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       .limit(1);
     if (existing.length > 0) {
       const row = existing[0]!;
+      documentsUploadedTotal.inc({ dedup: 'hit', source_mime: sourceMime });
       return uploadResponse.parse({ id: row.id, status: row.status, dedup: true });
     }
 
@@ -112,6 +126,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     });
 
     await app.queue.publish(STREAMS.documentUploaded, { documentId: inserted.id });
+    documentsUploadedTotal.inc({ dedup: 'miss', source_mime: sourceMime });
     return uploadResponse.parse({ id: inserted.id, status: inserted.status, dedup: false });
   });
 

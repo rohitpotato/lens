@@ -1,64 +1,186 @@
 # Decisions
 
-A running log of the architectural calls made while building Lens. Skips the
-bug-fix churn; keeps the reasoning and the trade-offs.
+A running log of the architectural calls made while building Lens. Skips
+the bug-fix churn; keeps the reasoning and the trade-offs.
 
 ---
 
 ## Scope
 
 Turn messy invoices and receipts into structured, queryable data — with a
-learning loop that makes the extractor better each time a reviewer corrects it.
-
-The user I'm building for is **Priya**, a controller processing ~300 vendor
-invoices a month by hand. Her job is copy-paste with costly downside on
-mistakes. The product's job is to auto-process everything it can, surface
-only the uncertain ones for review, and get visibly better every time she
-corrects something.
-
-Scope covers: uploads (PDF and image), fixed-schema extraction, a review
-workspace, a rule-learning loop, an eval harness that catches regressions
-before they merge, and enough observability to see how it's behaving. Not
-scoped: auth, multi-tenancy, generic text-to-SQL.
+learning loop that makes the extractor better each time a reviewer corrects
+it. Two document types (invoice, receipt), a review workspace, a
+rule-learning loop, an eval harness that catches regressions before they
+merge, an insight + SQL surface for downstream analysis, and enough
+observability to see how it behaves. Not scoped: auth, multi-tenancy,
+generic text-to-SQL, receipts / bank statements beyond the demo.
 
 ---
 
-## Foundation
+## Language & runtime
 
-### Stack
+**Node 22 LTS + TypeScript everywhere** — API, worker, web, evals, shared
+packages.
 
-- **Node 22 + TypeScript** everywhere. Familiar territory; the risk budget
-  is better spent on the pipeline than on relearning the runtime. Go was
-  considered and passed on — stable system first, optimizations later.
-- **Fastify + Zod** on the API. Every route touches a schema; typed schema
-  provider gives that with no glue code.
-- **Drizzle ORM** over Prisma. Keeps SQL close, migrations are plain SQL
-  files reviewers can read. Prisma's generator step doesn't earn its keep
-  here.
-- **Redis Streams** as the message queue (see below).
-- **pnpm workspaces** to share `@lens/db`, `@lens/pipeline`, `@lens/llm`,
-  `@lens/queue`, `@lens/storage` across the api / worker / web / evals apps.
-- **shadcn + Tailwind v4** on the frontend. Reviewers know shadcn; the
-  "hand-crafted" signal doesn't pay for the days it costs. Time saved goes
-  into the review workspace and rules flow.
-- **Docker images only in this repo** — the infra repo owns k8s manifests,
-  ArgoCD, TLS. Two-repo boundary matches how real teams split product from
-  platform.
+- Node over Go: I know Node's quirks and event-loop behavior well.
+  Building a stable system first, optimizing later — Go's compile-time
+  strictness and native concurrency are advantages I'd trade for velocity
+  on a 10-day build. Would consider Go for the worker specifically if we
+  had P99 latency problems the pipeline couldn't solve any other way.
+- Node over Python: pipeline code is I/O and orchestration heavy, not
+  numeric. TypeScript across FE + BE saves a language boundary. Python's
+  ML tooling isn't needed here (we hit hosted LLMs).
+- **TypeScript strict + `exactOptionalPropertyTypes`** — catches "did I
+  really mean undefined vs. missing?" bugs that JavaScript and looser TS
+  ship silently.
 
-### Redis Streams over Kafka or BullMQ
+## LLM provider: Anthropic (Sonnet + Haiku)
 
-Kafka is right for scale but wrong for a 10-day build; operational overhead
-is unjustified here. BullMQ hides `XCLAIM` and reprocessing semantics that
-matter to demonstrate. Raw Redis Streams gives us stream + consumer group +
-delivery-count as first-class primitives. Persistence to disk is on if we
-ever need retention.
+Two models, one provider. Assignment framing wanted responsible use of
+LLMs — cost-tiered by task fit is that:
 
-### Do we even need a queue?
+- **Haiku 4.5** for classify and hint generation. Small, cheap (~$0.001
+  per classify, ~$0.0007 per hint), fast (~1-2s). Both tasks are one-shot
+  short outputs where a bigger model is wasted spend.
+- **Sonnet 4.6** for extraction. PDF vision quality matters — invoices
+  have varied layouts and Sonnet reads them reliably. Extraction outputs
+  are longer JSON where the marginal quality of the larger model justifies
+  the ~$0.02 per doc.
 
-At this scale the API could handle extraction in the same request cycle. But
-Sonnet calls run 10-20s each, and we want to iterate on the pipeline
-independently of the API's lifecycle. Separation-of-concerns now, before it
-becomes painful.
+Why Anthropic over OpenAI:
+
+- **Native PDF vision** as a `document` content-type — no rasterization
+  step on our side, no per-page image blob juggling. GPT-4o requires
+  splitting PDFs into pages and sending each as an image.
+- **JSON-mode-adjacent strictness** with prompt instructions has been
+  reliable enough that we can enforce shape via the prompt + defensive
+  unwrap (the "wrapped under `fields`" bug I hit and fixed).
+- Consistent behavior on structured extraction across the two model
+  tiers; I don't have to re-prompt when going between Haiku and Sonnet.
+
+Why not Gemini:
+
+- Vision + document support is competitive, but the tool-use / structured
+  output story is younger and I've hit edge cases (JSON leakage into
+  markdown) in past use. Not worth the risk on a 10-day build.
+
+Why not a mix (Gemini for cheap, Anthropic for extract):
+
+- Two SDKs, two auth stories, two rate-limit patterns, two cost tables.
+  Single provider keeps the ops surface small. If cost or quality
+  arguments changed I'd revisit — the `@lens/llm` interface is a thin
+  wrapper for exactly this reason.
+
+## Data store: PostgreSQL
+
+- **Postgres** because JSONB gives us schema-flexible extraction storage
+  (`extractions.extracted_json`), a real query planner for the SQL console
+  (Monaco tab needs performance), and future room for `pgvector` when we
+  do embeddings-based entity resolution.
+- Not MongoDB / other doc stores: we DO have relational needs — extractions
+  → schemas, extractions → prompts, corrections → extractions, events →
+  aggregates. FK integrity is real value.
+- Not SQLite: single-node, no concurrent-worker story.
+
+## ORM: Drizzle
+
+- Migrations are plain SQL files that go through PR review. No hidden
+  generator step.
+- TypeScript inference is real: the schema types flow into query results
+  without a codegen step.
+- `Prisma` was the other option — heavier, hides the SQL, its migration
+  DSL is opinionated in ways that don't help me. Its type-generation step
+  adds a build-time contract I'd rather not have.
+- Raw `postgres` client alone would work but lose the shared type story
+  across api/worker/evals.
+
+## Queue: Redis Streams
+
+- Kafka is right for scale but wrong for a 10-day build. Operational
+  overhead (ZooKeeper or KRaft, brokers, topics, ACLs) is unjustified at
+  our message volume.
+- `BullMQ` (Redis-based) would work but hides `XCLAIM`, delivery-count,
+  consumer-group semantics. I want those visible because the flagship
+  learning loop depends on knowing when a message has been retried.
+- Redis Streams gives stream + consumer group + delivery-count as
+  first-class primitives. Native `XPENDING` / `XCLAIM` / `XAUTOCLAIM` map
+  cleanly to "reclaim orphaned messages after N seconds idle."
+- Do we even need a queue? At this scale the API could handle extraction
+  in the same request cycle. But Sonnet calls run ~10-20s each, and I
+  want to iterate on the pipeline independently of the API's lifecycle.
+  Separation-of-concerns now, before it becomes painful.
+- Redis persistence-to-disk (AOF) is on if we ever need retention beyond
+  process lifetime. Would pivot to Kafka only if we grow to multi-region
+  or need weeks of message history.
+
+## API framework: Fastify
+
+- Fastify + `fastify-type-provider-zod`. Every route touches a schema
+  (upload validation, review corrections, rules mutations) — typed schema
+  provider gives it with no glue code.
+- Not Express: no first-class validation story, plugin ecosystem is
+  older/inconsistent.
+- Not Hono: excellent but its Node-adapter story is younger, and I'm not
+  targeting edge runtimes.
+
+## Frontend framework: Vite + React + shadcn
+
+- **Vite** over Next.js: we're an SPA with a proxied API. No SSR
+  requirement, no server-component story needed. Vite's dev-server HMR is
+  the fastest iteration loop for this kind of app.
+- **React** over Svelte / SolidJS: not the differentiating decision here.
+  React's ecosystem (react-pdf, react-dropzone, TanStack Query) is what
+  I'd end up wanting anyway.
+- **shadcn/ui** over Chakra / MUI / Mantine / bespoke:
+  - shadcn ships primitives you copy into your codebase. You own the code,
+    you can edit it, no upgrade risk from a vendor's breaking release.
+    Chakra / MUI ship as dependencies — you're on their upgrade treadmill
+    and locked into their design tokens.
+  - Reviewers know shadcn. The "hand-crafted from Radix + Tailwind"
+    signal doesn't pay for the days it costs, and shadcn IS Radix +
+    Tailwind, just with the boring wiring done.
+  - Bespoke design system: I'd need one anyway (buttons, dialogs,
+    tooltips, tables), and building it during a 10-day build is time
+    stolen from the flagship.
+- **Tailwind v4** over v3: CSS-first config, one less config file, faster
+  builds. Beta but the API is frozen; shadcn officially supports it.
+- **TanStack Query** for server state — cache/refetch/mutation semantics
+  match what we need for review workflows. Redux would be overkill; SWR
+  is thinner but TanStack's `select` and mutation model are cleaner for
+  the correction/adopt flows.
+- **React Router v6** over TanStack Router — ubiquitous, less setup,
+  shadcn examples assume it. Would pick TanStack Router if we wanted
+  typed params.
+- **react-pdf** for the review workspace PDF viewer. Battle-tested,
+  bundles a known pdfjs. Alternative was rolling our own PDF.js
+  integration — same code we'd write, more bugs.
+- **react-dropzone** for upload — headless, ~10KB, standard. Alternative
+  was hand-rolling `<input type="file">` with drag handlers; not worth
+  the LOC.
+- **Monaco editor** for the SQL tab — same editor VS Code uses. SQL
+  syntax highlighting out of the box. CodeMirror was the other option;
+  Monaco has broader familiarity.
+- **shadcn `sonner`** for toasts — small footprint, works with Radix
+  patterns already in the codebase.
+
+## Package management: pnpm workspaces
+
+- Fast, disk-efficient, native workspace support.
+- Not npm workspaces: pnpm's hoisting is stricter, catches phantom
+  dependencies.
+- Not Bun: Bun's Node compat isn't universal (Drizzle Kit, pdf-parse have
+  edges). Would cost debugging time.
+- Not Turborepo: adds a config surface and caching I don't need at 8
+  workspaces. Plain pnpm scripts do the job.
+
+## Deploy target: Docker images, k8s lives elsewhere
+
+- This repo builds and publishes multi-arch container images (api, web,
+  worker) to GHCR on CI. The infra repo owns k8s manifests, ArgoCD
+  Applications, TLS, secrets.
+- Two-repo boundary matches how real teams split product from platform.
+  Keeps this repo focused on the product; keeps the infra repo the single
+  source of truth for deploy config.
 
 ---
 
@@ -83,11 +205,12 @@ erDiagram
 
 ### Fixed schemas as versioned files
 
-- Schemas live at `domains/<type>/schema.yaml` — invoice, receipt.
+- Schemas live at `domains/<type>/schema.yaml` — one file per document
+  type (invoice, receipt).
 - Started as a compatible subset of DocILE for lineage; product-friendly
   names (`total`, `invoice_date`) over academic ones (`amount_total_gross`).
-- The API upserts them into `schemas` on startup. Every extraction FKs to
-  the exact schema version that produced it, so a schema change never
+- The API upserts them into `schemas` on startup. Every extraction FKs
+  to the exact schema version that produced it, so a schema change never
   silently invalidates historical extractions.
 
 ### Prompts as versioned files
@@ -96,10 +219,10 @@ erDiagram
   `version`, `model`, `temperature`).
 - Same upsert-on-startup pattern as schemas. `extractions.prompt_id` pins
   the exact prompt version used.
-- Files, because prompts are engineering artifacts — they get diffed and
+- Files because prompts are engineering artifacts — they get diffed and
   PR-reviewed. Not string literals in code.
 
-### Extractions are mutable, corrections are immutable
+### Extractions mutable, corrections immutable
 
 - `extractions` is the current-state row. Reviewer corrections update the
   row in place; `version` column tracks concurrent-edit conflicts.
@@ -113,9 +236,9 @@ erDiagram
 - `events` is append-only, one row per state transition, in the same
   transaction as the domain write.
 - `pipeline_steps_completed` gates handler retries. UNIQUE
-  `(document_id, step_name)` protects against replay AND concurrent workers.
-  Inserted inside the domain transaction so a crash between commit and
-  marker can't leave duplicate work.
+  `(document_id, step_name)` protects against replay AND concurrent
+  workers. Inserted inside the domain transaction so a crash between
+  commit and marker can't leave duplicate work.
 - They look overlapping but answer different questions: events say "what
   happened," `pipeline_steps_completed` says "should this handler run now."
 
@@ -194,11 +317,10 @@ normalization at the door means downstream code stays uniform.
 
 ### Dedup by SHA256, not filename
 
-`documents.file_hash` is UNIQUE. Two vendors both naming a file
-`invoice-2025-04.pdf` are fine — different bytes, different hashes. The
-gap: a rescanned invoice or a PNG re-uploaded as JPEG are different bytes,
-so they'd end up as duplicates. Content-aware dedup (text digest) is a
-roadmap item.
+`documents.file_hash` is UNIQUE. Two different files sharing a filename
+are fine — different bytes, different hashes. The gap: a rescanned
+invoice or a PNG re-uploaded as JPEG are different bytes, so they'd end
+up as duplicates. Content-aware dedup (text digest) is a roadmap item.
 
 ---
 
@@ -232,7 +354,7 @@ The engine evaluates expressions inside a sandboxed `new Function` with
 pre-filled null for schema-declared fields (so a missing key never
 throws). Rules are author-controlled schema.yaml text, not user input.
 
-### The reconciliation UX pivot
+### The reconciliation UX
 
 Original plan showed `Confidence: 63%` next to a field. Better: show
 **why** we distrust it — the exact rule that fired and the value that
@@ -246,8 +368,8 @@ TOTAL: 4585.49
 
 Changes review from "do I trust this number" to "do I trust this
 reconciliation." Lower cognitive load, higher throughput, transparent
-reasoning. Priya sees the system's logic instead of a percentage she has
-to interpret.
+reasoning. Shows the system's logic instead of a percentage that has to
+be interpreted.
 
 ### "N required missing" isn't the same as "extractor failed"
 
@@ -282,21 +404,21 @@ flowchart LR
 
 ### Why synthesize a rule instead of passing raw corrections
 
-The alternative would be to just inject prior corrections into the
-extraction prompt: "the reviewer previously changed 4759.20 → 4585.49."
-Simple, one LLM call.
+The alternative would be to inject prior corrections into the extraction
+prompt directly: "previously changed 4759.20 → 4585.49." Simple, one LLM
+call.
 
 Why the synthesis + human-approval step exists:
 
-- **Corrections are events, rules are patterns.** Ten edits might imply a
-  rule; one usually doesn't. The synthesizer's job is to recognize the
+- **Corrections are events, rules are patterns.** Ten edits might imply
+  a rule; one usually doesn't. The synthesizer's job is to recognize the
   pattern once, so Sonnet doesn't re-derive it on every extraction.
-- **Token cost.** A vendor with 20 prior corrections would ship 20
-  pairs into every future extraction prompt. A synthesized rule is one
+- **Token cost.** A vendor with 20 prior corrections would ship 20 pairs
+  into every future extraction prompt. A synthesized rule is one
   sentence, forever.
-- **Human agency.** Finance users don't want a system that silently
-  rewrites how it interprets their invoices. Adopt / Ignore / Modify is
-  the point — the reviewer sees the rule text before it takes effect.
+- **Human agency.** Finance systems don't get silent behavior changes.
+  Adopt / Ignore / Modify is the point — the reviewer sees the rule text
+  before it takes effect.
 - **Contradictions get caught.** When corrections oscillate, the LLM
   prompt has an "inconsistent signal → empty hint" guardrail. Raw
   injection would just confuse the extractor.
@@ -317,8 +439,8 @@ schema-level rule.
 
 ## Eval harness
 
-If you can't measure it, you can't improve it. The eval harness gives
-"did the last change make things better or worse" a number.
+If you can't measure it, you can't improve it. The eval harness turns
+"did the last change make things better or worse" into a number.
 
 ### Fixtures
 
@@ -331,18 +453,18 @@ evals/fixtures/<id>/
     metadata.yaml     ← source, currency, features
 ```
 
-Corpus is a mix: 5 synthetic invoices generated by pdfkit (pristine ground
-truth we control) + 1 real DocILE-imported fixture (real-world messiness
-we don't). Synthetic tells us if a change silently broke happy paths; real
-tells us if it broke edge cases.
+Corpus is a mix: 5 synthetic invoices generated by pdfkit (pristine
+ground truth we control) + 1 real DocILE-imported fixture (real-world
+messiness we don't). Synthetic tells us if a change silently broke happy
+paths; real tells us if it broke edge cases.
 
 ### Comparison
 
-Field-type-aware: strings normalized (lowercase, strip punctuation), money
-within 0.01, dates ISO-exact, line items greedy-aligned by Jaccard on the
-`description` field. Per-field binary correct/not → per-fixture F1 →
-corpus F1. Binary is what a controller actually cares about (either the
-total is right or it isn't).
+Field-type-aware: strings normalized (lowercase, strip punctuation),
+money within 0.01, dates ISO-exact, line items greedy-aligned by Jaccard
+on the `description` field. Per-field binary correct/not → per-fixture
+F1 → corpus F1. Binary matches how a reviewer thinks about a field —
+either the total is right or it isn't.
 
 ### Cache
 
@@ -431,8 +553,8 @@ touchless, it's just fast review.
 Two tabs at `/query`:
 
 1. **Insights** — 6 pre-baked SQL queries as `.sql` files. Analysts add
-   queries by adding files, not code. Adding an insight is a git-diff, not
-   a deploy.
+   queries by adding files, not code. Adding an insight is a git-diff,
+   not a deploy.
 2. **SQL console** — Monaco editor + schema browser + Run button.
 
 Both go through the same `POST /query/run` endpoint. Every query runs
@@ -444,9 +566,9 @@ Chose the transaction-flag approach over a separate read-only PG role
 because it's stronger enforcement, doesn't need managing a second
 credential, and works for any query shape including CTEs.
 
-The console proves the actual thesis of the problem — "structured,
-queryable data" — as a demonstrable surface. Pre-baked queries alone
-would be a "trust us it's queryable" claim.
+The console demonstrates the actual thesis — "structured, queryable
+data" — as an operable surface. Pre-baked queries alone would be a
+"trust us it's queryable" claim.
 
 ---
 
@@ -458,28 +580,29 @@ LLM path:
 - **Per-IP rate limit** via `@fastify/rate-limit`, scoped to
   `POST /documents` only. Default 30 uploads / IP / hour.
 - **Daily cost cap** — `checkCostGuard()` sums the last 24h of
-  `extractions.cost_usd` before every upload. 503 with `code:
-  'cost_cap_reached'` if the cap is hit. A doc that never enters the
-  stream never bills.
+  `extractions.cost_usd` before every upload. 503 with
+  `code: 'cost_cap_reached'` if the cap is hit. A doc that never enters
+  the stream never bills.
 - **Upload size cap** 50 MB, enforced by chunked read.
 - **Retry cap** 2 attempts per queue message. Poison messages
   dead-letter to `documents.status='failed'` with a `document.failed`
-  event, instead of retrying forever and burning LLM cost. Real bug
-  I hit during dev: a validator ReferenceError caused a message to
-  retry every 60s and cost stacked up.
+  event, instead of retrying forever and burning LLM cost.
 
 ---
 
 ## Observability
 
-Documented in `TELEMETRY.md` as a plan, not built yet. Split of
-concerns: metrics/spans/logs live in this repo; dashboards/alerts/OTLP
-collector live in the infra repo. OpenTelemetry SDK + Prometheus scrape
-endpoint + pino → Loki via pod stdout.
+Metrics via `prom-client`; spans via OpenTelemetry (deferred). Both api
+and worker expose a `/metrics` scrape endpoint. Metric registry is
+shared through `@lens/metrics`. Prometheus + Grafana Tempo run in the
+infra repo's k3s cluster; this repo just exports.
 
-Priority when we pick it up: `prom-client` on the LLM cost/token
-counters first (answers "how much are we spending today" without a DB
-query), auto-instrumentation for traces second.
+Metrics cover: LLM calls (requests, tokens by direction, duration, cost
+by model), extractions (total, cost, latency, confidence histogram),
+corrections and rule adoption, queue depth + dead-letters, guardrail
+hits (cost cap, rate limit), HTTP request duration.
+
+Full plan and roll-out priority in [TELEMETRY.md](TELEMETRY.md).
 
 ---
 
@@ -487,18 +610,18 @@ query), auto-instrumentation for traces second.
 
 Named up front so the roadmap doesn't relitigate them.
 
-- **Text-to-SQL** — pre-baked queries + Monaco cover the demand.
-- **Multi-tenant** — single deployment; scope is the reviewer.
+- **Text-to-SQL** — pre-baked queries + Monaco console cover the demand.
+- **Multi-tenant** — single deployment.
 - **Auth** — daily $ cap + IP rate limit are the guardrails.
-- **Bounding-box overlay** — Sonnet-returned bboxes hallucinate; a
-  broken overlay undermines trust more than no overlay.
-- **Cross-check confidence signal via a second LLM call** — doubles
-  cost for a signal our other four already give us.
+- **Bounding-box overlay** in the PDF viewer — LLM-returned bboxes
+  hallucinate; a broken overlay undermines trust more than no overlay.
+- **Cross-check confidence via a second LLM call** — doubles cost for a
+  signal our other four already give us.
 - **pgvector entity resolution** — normalized exact-match + pg_trgm
-  covers the review flow. Embeddings are roadmap.
+  covers the review flow today. Embeddings are roadmap.
 - **Fully autonomous rule adoption** — the whole point of the
   human-approval step is that the system doesn't silently rewrite
   itself. Auto-adopt is a roadmap item gated on a lot more evidence than
   we have.
-- **In-repo Grafana / LGTM** — infra repo owns observability; this repo
-  exposes `/metrics` and OTLP.
+- **In-repo Grafana / LGTM dashboards** — infra repo owns dashboards
+  and alerts; this repo exposes `/metrics` and OTLP.
