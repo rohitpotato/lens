@@ -1,0 +1,22 @@
+vendor_name: Precise Instruments LLC
+invoice_number: 25-PI-004421
+invoice_date: 2025-03-28
+currency: USD
+subtotal: 1353.8
+total: 1465.49
+line_items:
+  - description: Calibration service — micrometer set
+    quantity: 12
+    unit_price: 87.4
+    amount: 1048.8
+  - description: Certificate of traceability
+    quantity: 12
+    unit_price: 15
+    amount: 180
+  - description: Rush handling (48h)
+    quantity: 1
+    unit_price: 125
+    amount: 125
+vendor_address: 445 Industrial Way, San Jose, CA 95112
+due_date: 2025-04-27
+tax_amount: 111.69

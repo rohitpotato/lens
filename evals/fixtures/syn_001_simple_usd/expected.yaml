@@ -1,0 +1,19 @@
+vendor_name: Acme Widgets, Inc.
+invoice_number: AW-2025-0007
+invoice_date: 2025-06-01
+currency: USD
+subtotal: 1875
+total: 2055.94
+line_items:
+  - description: Widget assembly (blue)
+    quantity: 100
+    unit_price: 12.5
+    amount: 1250
+  - description: Widget assembly (red)
+    quantity: 50
+    unit_price: 12.5
+    amount: 625
+vendor_address: 221B Baker Street, Springfield, IL 62701
+due_date: 2025-06-30
+tax_amount: 135.94
+shipping_amount: 45

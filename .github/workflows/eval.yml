@@ -1,0 +1,79 @@
+name: eval
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pipeline/prompts/**'
+      - 'domains/**/schema.yaml'
+      - 'packages/pipeline/**'
+      - 'packages/llm/**'
+      - 'evals/**'
+  workflow_dispatch:
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore eval cache
+        uses: actions/cache@v4
+        with:
+          path: evals/.cache
+          key: eval-cache-${{ hashFiles('pipeline/prompts/**', 'domains/**/schema.yaml') }}
+          restore-keys: |
+            eval-cache-
+
+      - name: Run eval
+        id: eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -o pipefail
+          pnpm --filter @lens/evals eval -- --block-on-regression --format markdown | tee eval-report.md
+        continue-on-error: true
+
+      - name: Post report to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('eval-report.md', 'utf8');
+            const marker = '<!-- lens-eval-report -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(c => c.body && c.body.startsWith(marker));
+            const payload = `${marker}\n${body}`;
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: payload });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: payload });
+            }
+
+      - name: Fail if eval regressed
+        if: steps.eval.outcome != 'success'
+        run: |
+          echo "eval step failed — regression or execution error"
+          exit 1

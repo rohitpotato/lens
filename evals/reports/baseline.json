@@ -1,0 +1,12 @@
+{
+  "ranAt": "2026-08-16T13:26:31.096Z",
+  "overallF1": 0.8939393939393939,
+  "perFixture": {
+    "docile_516f2d61ea404b30a9192a72": 0.3636363636363636,
+    "syn_001_simple_usd": 1,
+    "syn_002_no_tax_eur": 1,
+    "syn_003_many_lines_inr": 1,
+    "syn_004_single_line_gbp": 1,
+    "syn_005_high_precision_usd": 1
+  }
+}

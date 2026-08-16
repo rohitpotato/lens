@@ -1,0 +1,30 @@
+{
+  "name": "@lens/pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@lens/db": "workspace:*",
+    "@lens/llm": "workspace:*",
+    "@lens/queue": "workspace:*",
+    "@lens/storage": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "pdf-parse": "^1.1.1",
+    "yaml": "^2.6.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/pdf-parse": "^1.1.4",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}

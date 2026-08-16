@@ -1,0 +1,12 @@
+vendor_name: Thames Design Studio
+invoice_number: TDS-9004
+invoice_date: 2025-07-10
+currency: GBP
+subtotal: 18500
+total: 22200
+line_items:
+  - description: Brand system refresh (fixed fee)
+    quantity: 1
+    unit_price: 18500
+    amount: 18500
+tax_amount: 3700

@@ -1,0 +1,30 @@
+invoice_number: "99999999"
+invoice_date: null
+due_date: 2002-02-01
+vendor_name: PHILIP MORRIS INCORPORATED
+total: 4759.2
+line_items:
+  - quantity: 24000
+    description: MARL FF REG LS HP 6M PROM
+    unit_price: 132.2
+    amount: 3172.8
+  - description: Less Comp Cigs
+    amount: 1269.12
+  - quantity: 24000
+    description: MARL LT REG KS HP 6M PROM
+    unit_price: 132.2
+    amount: 3172.8
+  - description: Less Comp Cigs
+    amount: 1269.12
+  - quantity: 6000
+    description: MARL LT REG 100 HP 6M PROM
+    unit_price: 132.2
+    amount: 793.2
+  - description: Less Comp Cigs
+    amount: 317.28
+  - quantity: 6000
+    description: MARL UL REG KS HP 6M PROM
+    unit_price: 132.2
+    amount: 793.2
+  - description: Less Comp Cigs
+    amount: 317.28

@@ -1,0 +1,5 @@
+source: synth
+currency: USD
+has_tax: true
+line_item_count: 3
+features: []

@@ -150,6 +150,13 @@ export const corrections = pgTable(
   }),
 );
 
+/**
+ * `status` values: 'suggested' (waiting for human review), 'adopted' (injected
+ * into extract prompts), 'ignored' (reviewer dismissed). Only 'adopted' hints
+ * flow into the extract pipeline.
+ */
+export const promptHintStatuses = ['suggested', 'adopted', 'ignored'] as const;
+
 export const promptHints = pgTable(
   'prompt_hints',
   {
@@ -158,14 +165,19 @@ export const promptHints = pgTable(
     matchingKey: text('matching_key').notNull(),
     fieldPath: text('field_path').notNull(),
     hint: text('hint').notNull(),
+    status: text('status').notNull().default('suggested'),
+    evidenceCount: integer('evidence_count').notNull().default(1),
+    note: text('note'),
     createdFromCorrectionId: uuid('created_from_correction_id').references(() => corrections.id, {
       onDelete: 'set null',
     }),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    lookupIdx: index('prompt_hints_lookup_idx').on(t.documentType, t.matchingKey, t.isActive),
+    lookupIdx: index('prompt_hints_lookup_idx').on(t.documentType, t.matchingKey, t.status),
+    statusIdx: index('prompt_hints_status_idx').on(t.status, t.createdAt),
   }),
 );
 

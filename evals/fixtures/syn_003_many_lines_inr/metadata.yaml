@@ -1,0 +1,7 @@
+source: synth
+currency: INR
+has_tax: true
+line_item_count: 6
+features:
+  - many-line-items
+  - non-usd

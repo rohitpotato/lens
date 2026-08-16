@@ -1,0 +1,7 @@
+source: synth
+currency: GBP
+has_tax: true
+line_item_count: 1
+features:
+  - single-line-item
+  - non-usd

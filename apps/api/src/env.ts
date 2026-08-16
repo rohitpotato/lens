@@ -17,6 +17,8 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  LENS_UPLOADS_PER_HOUR_PER_IP: z.coerce.number().int().positive().default(30),
+  LENS_DAILY_COST_USD: z.coerce.number().nonnegative().default(5),
 });
 
 export type Env = z.infer<typeof envSchema>;

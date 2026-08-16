@@ -1,0 +1,123 @@
+# Invoice schema
+#
+# Product-facing schema. Describes what the extractor should produce and what
+# the review UI renders. External-dataset mappings (e.g. DocILE → this shape)
+# live in evals/src/import/ where they're used, not here.
+
+name: invoice
+version: 1
+description: A vendor invoice with header fields and line items.
+
+fields:
+  vendor_name:
+    type: string
+    required: true
+    description: Legal name of the entity issuing the invoice.
+    normalize:
+      via: entity_resolution
+      entity_type: vendor
+
+  vendor_address:
+    type: string
+    required: false
+    description: Postal address of the vendor.
+
+  invoice_number:
+    type: string
+    required: true
+    pattern: '[A-Za-z0-9\-\/]+'
+    description: Unique identifier for this invoice from the vendor.
+
+  invoice_date:
+    type: date
+    required: true
+    format: iso8601
+    description: Date the invoice was issued (YYYY-MM-DD).
+
+  due_date:
+    type: date
+    required: false
+    format: iso8601
+    description: Date payment is due.
+
+  currency:
+    type: enum
+    values: [USD, EUR, GBP, INR, JPY, AUD, CAD]
+    default: USD
+    description: Currency code for all monetary fields on this invoice.
+
+  subtotal:
+    type: money
+    required: false
+    description: Total before tax.
+
+  tax_amount:
+    type: money
+    required: false
+    description: Total tax across all lines.
+
+  shipping_amount:
+    type: money
+    required: false
+    description: Shipping, freight, or delivery charge, if separately listed. Excludes taxes on shipping.
+
+  discount_amount:
+    type: money
+    required: false
+    description: Total discount, coupon, or credit applied, as a POSITIVE number. Reduces the total.
+
+  total:
+    type: money
+    required: true
+    description: Grand total the recipient owes, after all taxes and credits.
+
+  line_items:
+    type: list
+    required: false
+    element:
+      description:
+        type: string
+        required: true
+      quantity:
+        type: number
+        required: false
+      unit_price:
+        type: money
+        required: false
+      amount:
+        type: money
+        required: true
+
+validations:
+  # Rules deliberately do NOT fire on all-null operands. `applies_if` requires
+  # the actual operands (not just total) to be present — otherwise the
+  # "suggested value" would be trivially 0 and misleading.
+  - name: line_items_sum_to_subtotal
+    rule: 'abs(sum(line_items[*].amount) - subtotal) < 0.01'
+    severity: warning
+    applies_if: 'line_items != null && line_items.length > 0 && subtotal != null'
+    suggests:
+      field: subtotal
+      value: 'sum(line_items[*].amount)'
+    message: 'Line-item amounts sum to a value different from the extracted subtotal.'
+
+  - name: subtotal_plus_tax_equals_total
+    rule: 'abs((subtotal || 0) + (tax_amount || 0) + (shipping_amount || 0) - (discount_amount || 0) - total) < 0.01'
+    severity: warning
+    applies_if: 'total != null && subtotal != null'
+    suggests:
+      field: total
+      value: '(subtotal || 0) + (tax_amount || 0) + (shipping_amount || 0) - (discount_amount || 0)'
+    message: 'Subtotal + tax + shipping - discount does not equal total.'
+
+  - name: due_date_after_invoice_date
+    rule: 'due_date >= invoice_date'
+    severity: error
+    applies_if: 'due_date != null && invoice_date != null'
+    message: 'Due date is before invoice date.'
+
+  - name: total_is_positive
+    rule: 'total > 0'
+    severity: error
+    applies_if: 'total != null'
+    message: 'Total must be positive.'

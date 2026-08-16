@@ -1,0 +1,35 @@
+vendor_name: Kumar Supply Co.
+invoice_number: KSC/2025/0891
+invoice_date: 2025-05-20
+currency: INR
+subtotal: 36350
+total: 43393
+line_items:
+  - description: Stainless bolts M6x20 (bag of 100)
+    quantity: 40
+    unit_price: 145
+    amount: 5800
+  - description: Stainless nuts M6 (bag of 100)
+    quantity: 40
+    unit_price: 95
+    amount: 3800
+  - description: Washers M6 (bag of 200)
+    quantity: 20
+    unit_price: 60
+    amount: 1200
+  - description: Threaded rod M6 (1m)
+    quantity: 30
+    unit_price: 240
+    amount: 7200
+  - description: Bench vise 4in
+    quantity: 3
+    unit_price: 3200
+    amount: 9600
+  - description: Toolbox steel 22in
+    quantity: 5
+    unit_price: 1750
+    amount: 8750
+vendor_address: Plot 34, MIDC Andheri East, Mumbai 400093
+due_date: 2025-06-19
+tax_amount: 6543
+shipping_amount: 500

@@ -1,0 +1,7 @@
+source: synth
+currency: EUR
+has_tax: false
+line_item_count: 2
+features:
+  - no-tax-line
+  - non-usd

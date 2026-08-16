@@ -1,0 +1,16 @@
+vendor_name: Bergstrom Consulting AB
+invoice_number: BC-2025-142
+invoice_date: 2025-04-15
+currency: EUR
+subtotal: 7840
+total: 7840
+line_items:
+  - description: Strategy workshop, 2 days
+    quantity: 2
+    unit_price: 3200
+    amount: 6400
+  - description: Report preparation
+    quantity: 8
+    unit_price: 180
+    amount: 1440
+vendor_address: Kungsgatan 12, 111 43 Stockholm, Sweden

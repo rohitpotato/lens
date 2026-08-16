@@ -1,7 +1,44 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:zamp-eng-hiring.zampapps.com)"
+      "WebFetch(domain:zamp-eng-hiring.zampapps.com)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm typecheck *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:rossumai.github.io)",
+      "Bash(gh api *)",
+      "Bash(python3 -c \"import sys, json, base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d['content']\\).decode\\(\\)\\)\")",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/rossumai/docile/main/docile/dataset/field.py\")",
+      "Bash(curl -sL \"https://api.github.com/repos/rossumai/docile/contents/docile/dataset\")",
+      "Bash(curl -sL \"https://api.github.com/repos/rossumai/docile/git/trees/main?recursive=1\")",
+      "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); [print\\(f['path']\\) for f in d.get\\('tree',[]\\) if 'field' in f['path'].lower\\(\\) or 'schema' in f['path'].lower\\(\\) or 'kile' in f['path'].lower\\(\\) or 'annotation' in f['path'].lower\\(\\)]\")",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/rossumai/docile/main/tests/data/sample-dataset/annotations/516f2d61ea404b30a9192a72.json\")",
+      "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); ft=sorted\\({f.get\\('fieldtype'\\) for f in d.get\\('field_extractions',[]\\) if f.get\\('fieldtype'\\)}\\); li=sorted\\({f.get\\('fieldtype'\\) for f in d.get\\('line_item_extractions',[]\\) if f.get\\('fieldtype'\\)}\\); print\\('KILE:', ft\\); print\\('LIR:', li\\)\")",
+      "Bash(awk -F= '{print \\(length\\($2\\) > 20 ? \"set \\(length=\"length\\($2\\)\"\\)\" : \"empty or short\"\\)}')",
+      "Bash(curl -sL -o scratchpad/sample.pdf \"https://raw.githubusercontent.com/rossumai/docile/main/tests/data/sample-dataset/pdfs/516f2d61ea404b30a9192a72.pdf\")",
+      "Bash(curl -sS -X POST http://localhost:3001/documents -F \"file=@scratchpad/sample.pdf\")",
+      "Bash(docker exec *)",
+      "Bash(tail -60 /tmp/api.log)",
+      "Bash(lsof -iTCP:3001 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:6379 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:5432 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:9000 -sTCP:LISTEN)",
+      "Bash(docker compose *)",
+      "Bash(lsof -iTCP:6380 -sTCP:LISTEN)",
+      "Bash(curl -sL -o scratchpad/sample2.pdf \"https://raw.githubusercontent.com/rossumai/docile/main/tests/data/sample-dataset/pdfs/525dbb0e63bd47baa47ac5d1.pdf\")",
+      "Bash(dd if=/dev/urandom of=scratchpad/salt bs=64 count=1)",
+      "Bash(curl -sS -X POST http://localhost:3001/documents -F \"file=@scratchpad/sample2.pdf\")",
+      "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); [print\\(f['path']\\) for f in d.get\\('tree',[]\\) if f['path'].startswith\\('tests/data/sample-dataset'\\)]\")",
+      "Bash(pnpm --filter @lens/evals synth)",
+      "Bash(pnpm --filter @lens/evals import)",
+      "Bash(pnpm --filter @lens/evals import:docile)",
+      "Bash(pnpm --filter @lens/api typecheck)",
+      "Bash(pnpm dlx *)",
+      "Bash(pnpm --filter @lens/web add react-pdf pdfjs-dist)",
+      "Bash(pnpm --filter @lens/web typecheck)",
+      "Bash(awk '{print $2}')",
+      "Bash(curl -sS -o /tmp/resp.txt -w \"HTTP: %{http_code}\\\\n\" -X POST http://localhost:3001/query/run -H \"content-type: application/json\" -d '{\"sql\":\"UPDATE documents SET filename = filename\"}')",
+      "Read(//tmp/**)"
     ]
   }
 }

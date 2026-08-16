@@ -1,0 +1,129 @@
+# Receipt schema — v1
+#
+# Second document type. Everything downstream (schema loader, prompt loader,
+# extract pipeline, review workspace, /rules, /vendors, /query) is
+# schema-agnostic — the only wiring change was making extract's schema+prompt
+# lookup key off `detected_type` instead of hardcoding 'invoice'.
+
+name: receipt
+version: 1
+description: A retail/restaurant receipt with merchant, purchase date, line items, and total.
+
+fields:
+  merchant_name:
+    type: string
+    required: true
+    description: The store or restaurant name at the top of the receipt.
+    normalize:
+      via: entity_resolution
+      entity_type: vendor
+
+  merchant_address:
+    type: string
+    required: false
+    description: Store address if printed.
+
+  receipt_date:
+    type: date
+    required: true
+    format: iso8601
+    description: Date of purchase (YYYY-MM-DD).
+
+  currency:
+    type: enum
+    values: [USD, EUR, GBP, INR, JPY, AUD, CAD]
+    default: USD
+
+  subtotal:
+    type: money
+    required: false
+    description: Total before tax and tip.
+
+  tax_amount:
+    type: money
+    required: false
+    description: Sales tax or VAT.
+
+  tip_amount:
+    type: money
+    required: false
+    description: Gratuity added by the customer, if separately listed.
+
+  service_charge:
+    type: money
+    required: false
+    description: Non-tip, non-tax add-on charges — convenience fees, booking fees, delivery fees, service charges applied by the merchant. Does NOT include line-item purchases or taxes.
+
+  total:
+    type: money
+    required: true
+    description: Grand total charged to the customer.
+
+  payment_method:
+    type: string
+    required: false
+    description: e.g. "Visa ****1234", "Cash", "Apple Pay".
+
+  amount_tendered:
+    type: money
+    required: false
+    description: The amount the customer actually handed over — cash paid, card charged, etc. On cash receipts this is often shown as "Cash" or "Paid" and may exceed the total. For card payments, equals total.
+
+  change_given:
+    type: money
+    required: false
+    description: Change returned to the customer. Only present on cash payments where amount_tendered > total. Always a positive number.
+
+  line_items:
+    type: list
+    required: false
+    element:
+      description:
+        type: string
+        required: true
+      quantity:
+        type: number
+        required: false
+      unit_price:
+        type: money
+        required: false
+      amount:
+        type: money
+        required: true
+
+validations:
+  # Rules deliberately do NOT fire on all-null operands. `applies_if` requires
+  # the actual operands (not just total) to be present — otherwise the
+  # "suggested value" would be trivially 0 and misleading.
+  - name: line_items_sum_to_subtotal
+    rule: 'abs(sum(line_items[*].amount) - subtotal) < 0.01'
+    severity: warning
+    applies_if: 'line_items != null && line_items.length > 0 && subtotal != null'
+    suggests:
+      field: subtotal
+      value: 'sum(line_items[*].amount)'
+    message: 'Line-item amounts do not sum to the extracted subtotal.'
+
+  - name: subtotal_plus_tax_tip_equals_total
+    rule: 'abs((subtotal || 0) + (tax_amount || 0) + (tip_amount || 0) + (service_charge || 0) - total) < 0.01'
+    severity: warning
+    applies_if: 'total != null && subtotal != null'
+    suggests:
+      field: total
+      value: '(subtotal || 0) + (tax_amount || 0) + (tip_amount || 0) + (service_charge || 0)'
+    message: 'Subtotal + tax + tip + service charge does not equal total.'
+
+  - name: total_is_positive
+    rule: 'total > 0'
+    severity: error
+    applies_if: 'total != null'
+    message: 'Total must be positive.'
+
+  - name: change_reconciles
+    rule: 'abs((amount_tendered || 0) - (change_given || 0) - total) < 0.01'
+    severity: warning
+    applies_if: 'amount_tendered != null && total != null'
+    suggests:
+      field: change_given
+      value: '(amount_tendered || 0) - total'
+    message: 'Amount tendered minus change should equal total.'
