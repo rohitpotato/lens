@@ -38,6 +38,12 @@ ENV NODE_ENV=production
 # CWD must be apps/api so the plugin's ../../{domains,pipeline} resolves
 # to /app/{domains,pipeline} — same shape as local dev.
 WORKDIR /app/apps/api
+# Workspace root files — pnpm walks up from CWD to find pnpm-workspace.yaml.
+# Without these, `pnpm --filter @lens/db …` treats apps/api as the root and
+# silently matches nothing (exit 0), so migrations never run.
+COPY --from=build /app/package.json       /app/package.json
+COPY --from=build /app/pnpm-workspace.yaml /app/pnpm-workspace.yaml
+COPY --from=build /app/pnpm-lock.yaml     /app/pnpm-lock.yaml
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/packages     /app/packages
 COPY --from=build /app/apps/api     /app/apps/api
