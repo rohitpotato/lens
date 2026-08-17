@@ -1,4 +1,12 @@
-const BASE = '/api';
+// Read from runtime config injected by /config.js. Falls back to /api for
+// dev (Vite proxy) or if the script hasn't loaded yet.
+declare global {
+  interface Window {
+    __LENS_CONFIG__?: { API_BASE_URL?: string };
+  }
+}
+
+const BASE = window.__LENS_CONFIG__?.API_BASE_URL ?? '/api';
 
 export class ApiError extends Error {
   constructor(

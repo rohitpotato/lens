@@ -7,6 +7,8 @@
   </head>
   <body class="h-full bg-background text-foreground antialiased">
     <div id="root" class="h-full"></div>
+    <!-- Runtime config: k8s ConfigMap can override /config.js without a rebuild -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

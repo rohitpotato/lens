@@ -15,12 +15,22 @@ jobs:
     strategy:
       matrix:
         include:
-          - app: api
+          # Image names align with what k8s-apps manifests reference
+          # (ghcr.io/rohitpotato/lens/backend, /consumer, /frontend).
+          - app: backend
             dockerfile: apps/api/Dockerfile
-          - app: web
+          - app: consumer
+            dockerfile: apps/worker/Dockerfile
+          - app: frontend
             dockerfile: apps/web/Dockerfile
+    outputs:
+      short_sha: ${{ steps.short.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Compute short sha
+        id: short
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -36,7 +46,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}/${{ matrix.app }}
           tags: |
             type=ref,event=branch
-            type=sha,format=short
+            type=sha,prefix=sha-,format=short
             type=semver,pattern={{version}}
 
       - uses: docker/build-push-action@v6
@@ -48,3 +58,58 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  update-k8s-apps:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute short sha
+        id: short
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout k8s-apps
+        uses: actions/checkout@v4
+        with:
+          repository: rohitpotato/k8s-apps
+          token: ${{ secrets.K8S_APPS_TOKEN }}
+          ref: main
+
+      - name: Update image tags to sha-${{ steps.short.outputs.sha }}
+        env:
+          TAG: sha-${{ steps.short.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Backend (api) and consumer (worker) — both deployments.
+          for f in \
+            backend/production/lens-backend/deployment.yaml \
+            backend/production/lens-consumer/deployment.yaml \
+            frontend/production/lens/rollout.yaml
+          do
+            if [ ! -f "$f" ]; then
+              echo "warn: $f not found — skipping"; continue
+            fi
+            case "$f" in
+              */lens-backend/*)  app=backend  ;;
+              */lens-consumer/*) app=consumer ;;
+              */lens/rollout.yaml) app=frontend ;;
+            esac
+            # Match `image: ghcr.io/<repo>/<app>:<anything>` and rewrite only the tag.
+            sed -i -E "s|(image:\\s*ghcr\\.io/${REPO}/${app}:)[^[:space:]]+|\\1${TAG}|g" "$f"
+            echo "$f -> $app:$TAG"
+            grep -n "image:" "$f" || true
+          done
+
+      - name: Commit + push
+        env:
+          TAG: sha-${{ steps.short.outputs.sha }}
+        run: |
+          if git diff --quiet; then
+            echo "no image tag changes to commit"; exit 0
+          fi
+          git config user.name  "lens-ci"
+          git config user.email "lens-ci@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(lens): bump images to ${TAG}"
+          git push origin main

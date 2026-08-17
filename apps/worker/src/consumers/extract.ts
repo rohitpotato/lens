@@ -198,6 +198,16 @@ export function makeExtractConsumer(deps: {
       await markCompleted(tx, documentId, STEP);
     });
 
+    extractionsTotal.inc({ document_type: detectedType, outcome: status });
+    extractionConfidence.observe({ document_type: detectedType }, confidence.overall);
+    extractionDurationSeconds.observe(
+      { document_type: detectedType, passes: hintsApplied.length > 0 ? '2' : '1' },
+      (Date.now() - extractStart) / 1000,
+    );
+    if (hintsApplied.length > 0) {
+      extractionHintsApplied.inc({ document_type: detectedType });
+    }
+
     log.info({ status, overallConfidence: confidence.overall }, 'extracted');
 
     await deps.queue.publish(STREAMS.extractionCompleted, { documentId });
