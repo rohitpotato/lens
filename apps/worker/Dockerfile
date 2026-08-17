@@ -23,6 +23,9 @@ COPY packages ./packages
 COPY apps/worker ./apps/worker
 COPY domains ./domains
 COPY pipeline ./pipeline
+# Same story as api Dockerfile — packages need their dist/ produced before
+# the app that imports them can run.
+RUN pnpm -r --filter './packages/*' build
 RUN pnpm --filter @lens/worker build
 
 # --- runtime -------------------------------------------------------------

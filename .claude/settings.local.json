@@ -47,7 +47,10 @@
       "Bash(gh pr *)",
       "Bash(curl -sL \"https://api.github.com/repos/rohitpotato/k8s-apps/pulls/3/files\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(f['filename']\\) for f in d]\")",
-      "Bash(ls /Users/rohitpotato/k8s-apps/)"
+      "Bash(ls /Users/rohitpotato/k8s-apps/)",
+      "Bash(grep -rA10 \"kind: ClusterSecretStore\" /Users/rohitpotato/k8s-apps/eso/)",
+      "Bash(pnpm -r --filter './packages/*' build)",
+      "Bash(docker run *)"
     ]
   }
 }
