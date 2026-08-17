@@ -26,6 +26,7 @@ COPY apps/api ./apps/api
 # Runtime reads these from disk on startup (resolve paths in services.ts).
 COPY domains ./domains
 COPY pipeline ./pipeline
+COPY queries ./queries
 # Build workspace packages first — their dist/ output is what api's compiled
 # code imports at runtime. Without this, `main: dist/index.js` targets are
 # missing and Node fails with ERR_MODULE_NOT_FOUND.
@@ -49,5 +50,6 @@ COPY --from=build /app/packages     /app/packages
 COPY --from=build /app/apps/api     /app/apps/api
 COPY --from=build /app/domains      /app/domains
 COPY --from=build /app/pipeline     /app/pipeline
+COPY --from=build /app/queries      /app/queries
 EXPOSE 3001
 CMD ["node", "dist/index.js"]
