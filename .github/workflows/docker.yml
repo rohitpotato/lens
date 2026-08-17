@@ -40,10 +40,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Repo path in ghcr.io URL must be lowercase.
+      - name: Compute image name
+        id: img
+        run: echo "name=$(echo ghcr.io/${{ github.repository }}/${{ matrix.app }} | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.app }}
+          images: ${{ steps.img.outputs.name }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=sha-,format=short
