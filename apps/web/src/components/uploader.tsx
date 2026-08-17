@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Upload, FileText } from 'lucide-react';
-import { ApiError } from '@/lib/api';
+import { API_BASE, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -38,7 +38,7 @@ export function Uploader() {
       try {
         const form = new FormData();
         form.append('file', file);
-        const res = await fetch('/api/documents', { method: 'POST', body: form });
+        const res = await fetch(`${API_BASE}/documents`, { method: 'POST', body: form });
         const text = await res.text();
         const body = (text ? JSON.parse(text) : null) as UploadResponse | { error?: string; code?: string } | null;
         if (!res.ok) {

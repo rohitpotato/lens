@@ -6,7 +6,8 @@ declare global {
   }
 }
 
-const BASE = window.__LENS_CONFIG__?.API_BASE_URL ?? '/api';
+export const API_BASE = window.__LENS_CONFIG__?.API_BASE_URL ?? '/api';
+const BASE = API_BASE;
 
 export class ApiError extends Error {
   constructor(
@@ -126,7 +127,7 @@ export const reviewApi = {
     }),
 };
 
-export const pdfUrl = (documentId: string) => `/api/documents/${documentId}/pdf`;
+export const pdfUrl = (documentId: string) => `${API_BASE}/documents/${documentId}/pdf`;
 
 export type Rule = {
   id: string;
