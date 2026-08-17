@@ -83,9 +83,12 @@ jobs:
       - name: Update image tags to sha-${{ steps.short.outputs.sha }}
         env:
           TAG: sha-${{ steps.short.outputs.sha }}
-          REPO: ${{ github.repository }}
+          REPO_RAW: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # GHCR paths are lowercase (build step lowercases too). github.repository
+          # keeps the repo's original case, so lowercase it here or sed misses.
+          REPO=$(echo "$REPO_RAW" | tr '[:upper:]' '[:lower:]')
           # Backend (api) and consumer (worker) — both deployments.
           for f in \
             backend/production/lens-backend/deployment.yaml \
