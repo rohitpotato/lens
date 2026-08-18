@@ -66,6 +66,16 @@ fields:
     required: false
     description: Total discount, coupon, or credit applied, as a POSITIVE number. Reduces the total.
 
+  fees_amount:
+    type: money
+    required: false
+    description: |
+      Sum of any additional charges shown on the invoice that are NOT tax,
+      NOT shipping, and NOT discount — e.g. packing charge, platform fee,
+      service fee, convenience fee, handling fee, restocking fee.
+      Common on food-delivery, marketplace, and services invoices.
+      Positive number that INCREASES the total.
+
   total:
     type: money
     required: true
@@ -102,13 +112,13 @@ validations:
     message: 'Line-item amounts sum to a value different from the extracted subtotal.'
 
   - name: subtotal_plus_tax_equals_total
-    rule: 'abs((subtotal || 0) + (tax_amount || 0) + (shipping_amount || 0) - (discount_amount || 0) - total) < 0.01'
+    rule: 'abs((subtotal || 0) + (tax_amount || 0) + (shipping_amount || 0) + (fees_amount || 0) - (discount_amount || 0) - total) < 0.01'
     severity: warning
     applies_if: 'total != null && subtotal != null'
     suggests:
       field: total
-      value: '(subtotal || 0) + (tax_amount || 0) + (shipping_amount || 0) - (discount_amount || 0)'
-    message: 'Subtotal + tax + shipping - discount does not equal total.'
+      value: '(subtotal || 0) + (tax_amount || 0) + (shipping_amount || 0) + (fees_amount || 0) - (discount_amount || 0)'
+    message: 'Subtotal + tax + shipping + fees - discount does not equal total.'
 
   - name: due_date_after_invoice_date
     rule: 'due_date >= invoice_date'
